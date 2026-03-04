@@ -774,6 +774,18 @@ function setTool(t) {
 // ── Mouse events ──────────────────────────────────────────────────────────────
 canvas.addEventListener('mousedown', e => {
   if (e.button === 2) return;
+
+  // Middle mouse: pan regardless of active tool
+  if (e.button === 1) {
+    e.preventDefault();
+    const sm = canvasXY(e);
+    panning.on = true;
+    panning.sx = sm.x; panning.sy = sm.y;
+    panning.vx = view.x; panning.vy = view.y;
+    workspace.className = 'mode-pan';
+    return;
+  }
+
   const sm = canvasXY(e);
   const wm = s2w(sm.x, sm.y);
 
