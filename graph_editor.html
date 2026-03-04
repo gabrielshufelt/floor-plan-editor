@@ -539,6 +539,7 @@ function applyProps() {
     node.type        = document.getElementById('pn-type').value;
     node.label       = document.getElementById('pn-label').value.trim();
     node.buildingId  = document.getElementById('pn-bldg').value.trim();
+    document.getElementById('def-building').value = node.buildingId;
     node.floor       = parseInt(document.getElementById('pn-floor').value) || 1;
     node.x           = parseFloat(document.getElementById('pn-x').value) || node.x;
     node.y           = parseFloat(document.getElementById('pn-y').value) || node.y;
