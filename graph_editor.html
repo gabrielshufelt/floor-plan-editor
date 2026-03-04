@@ -268,7 +268,7 @@ select#node-type-sel { width: 130px; }
   <span>Zoom: <span class="val" id="st-zoom">100%</span></span>
   <div class="sep" style="height:14px"></div>
   <div id="legend"></div>
-  <span id="hint">V · N · E &nbsp;|&nbsp; Del · Ctrl+Z/Y · Scroll · 0=fit</span>
+  <span id="hint">V · N · E · R · D · W &nbsp;|&nbsp; Del · Ctrl+Z/Y · Scroll · 0=fit</span>
 </div>
 
 <script>
@@ -907,6 +907,15 @@ document.addEventListener('keydown', e => {
     case 'v': case 'V': setTool('select'); break;
     case 'n': case 'N': setTool('node');   break;
     case 'e': case 'E': setTool('edge');   break;
+    case 'r': case 'R':
+      document.getElementById('node-type-sel').value = 'room';
+      setTool('node'); break;
+    case 'd': case 'D':
+      document.getElementById('node-type-sel').value = 'doorway';
+      setTool('node'); break;
+    case 'w':
+      document.getElementById('node-type-sel').value = 'hallway_waypoint';
+      setTool('node'); break;
     case 'Delete': case 'Backspace': e.preventDefault(); delSelected(); break;
     case 'Escape':
       conSrc = null; rubber.on = false; clearSel();
