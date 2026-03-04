@@ -1,7 +1,7 @@
 # Floor Plan Nav Graph Editor
 
 Lightweight tools for converting architectural floor plan images into navigable indoor maps. These tools were developed to help create navigation graphs for the campus exploration app, as part of SOEN 390.
-<img width="1000" src="https://github.com/user-attachments/assets/2caa1fd8-2d6c-4c70-aaca-4af900e19fdc" />
+<img width="1000" src="https://github.com/user-attachments/assets/ca45a1e1-89a7-4282-9a45-86ac2807f51e" />
 <img width="1000" src="https://github.com/user-attachments/assets/b07a2d7f-a82d-4c77-a0ae-fed0cae3bf97" />
 
 ## Tools
