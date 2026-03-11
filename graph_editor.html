@@ -159,7 +159,8 @@ select#node-type-sel { width: 130px; }
 <div id="toolbar">
   <!-- File ops -->
   <button id="btn-img"    title="Load floor plan PNG">📂 Image</button>
-  <button id="btn-load"   title="Load nav graph JSON (Ctrl+O)">📂 Graph</button>
+  <button id="btn-load"   title="Load nav graph JSON — replaces current graph (Ctrl+O)">📂 Graph</button>
+  <button id="btn-merge"  title="Merge one or more floor JSON files into the current graph">📥 Merge</button>
   <button id="btn-export" title="Export nav graph JSON (Ctrl+S)">💾 Export</button>
   <div class="sep"></div>
 
@@ -192,9 +193,16 @@ select#node-type-sel { width: 130px; }
   <button id="btn-undo" disabled title="Undo (Ctrl+Z)">↩</button>
   <button id="btn-redo" disabled title="Redo (Ctrl+Y)">↪</button>
 
+  <div class="sep"></div>
+  <span class="tb-label">Floor view:</span>
+  <select id="floor-filter-sel" title="Show only this floor" style="width:80px;">
+    <option value="all">All</option>
+  </select>
+
   <!-- Hidden file inputs -->
-  <input type="file" id="in-img"  accept="image/png,image/jpeg" style="display:none">
-  <input type="file" id="in-json" accept=".json,application/json" style="display:none">
+  <input type="file" id="in-img"   accept="image/png,image/jpeg" style="display:none">
+  <input type="file" id="in-json"  accept=".json,application/json" style="display:none">
+  <input type="file" id="in-merge" accept=".json,application/json" multiple style="display:none">
 </div>
 
 <!-- Canvas workspace -->
@@ -232,6 +240,23 @@ select#node-type-sel { width: 130px; }
         <input type="checkbox" id="pn-acc"><label for="pn-acc">Accessible</label>
       </div>
       <div class="pr"><label>Metadata (JSON)</label><textarea id="pn-meta">{}</textarea></div>
+      <div id="pn-crossfloor" style="display:none">
+        <hr style="border-color:#313244; margin:10px 0 8px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;
+                    letter-spacing:0.8px;color:#cba6f7;margin-bottom:8px;">
+          Cross-Floor Links
+        </div>
+        <div id="pn-cf-existing" style="font-size:11px;color:#a6adc8;
+             margin-bottom:8px;line-height:1.7;"></div>
+        <div class="pr">
+          <label>Link to node on another floor</label>
+          <div style="display:flex;gap:5px;align-items:center;">
+            <select id="pn-cf-sel" style="flex:1;min-width:0;"></select>
+            <button id="pn-cf-link" class="btn-primary"
+                    style="white-space:nowrap;flex-shrink:0;">Link</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Edge fields -->
@@ -284,6 +309,8 @@ const MAX_ZOOM    = 10;
 const LS_GRAPH       = 'fpeditor_graph';
 const LS_IMAGE       = 'fpeditor_image';
 const MAX_FILE_BYTES = 3 * 1024 * 1024; // 3 MB
+const CROSS_FLOOR_TYPES = new Set(['stair_landing', 'elevator_door']);
+const CROSS_FLOOR_COLOR = '#ff79c6'; // magenta (Catppuccin pink)
 
 const NODE_TYPES = [
   'room','doorway','hallway_waypoint',
@@ -344,6 +371,8 @@ let panning   = { on: false, sx: 0, sy: 0, vx: 0, vy: 0 };
 let rubber    = { on: false, sx: 0, sy: 0 };
 let lasso     = { on: false, sx: 0, sy: 0, ex: 0, ey: 0 }; // screen coords
 
+let floorFilter = new Set(); // empty = all floors visible
+
 let needsRedraw = true;
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
@@ -371,6 +400,7 @@ function hitNode(wx, wy) {
   const r2 = HIT_R * HIT_R;
   for (const id in graph.nodes) {
     const n  = graph.nodes[id];
+    if (floorFilter.size > 0 && !floorFilter.has(n.floor)) continue;
     const nx = n.x * view.scale + view.x;
     const ny = n.y * view.scale + view.y;
     if ((px-nx)**2 + (py-ny)**2 <= r2) return id;
@@ -436,7 +466,10 @@ function addEdge(srcId, tgtId) {
   }
   const id  = nextEdgeId(srcId, tgtId);
   const a   = graph.nodes[srcId], b = graph.nodes[tgtId];
-  const w   = a && b ? Math.round(Math.hypot(b.x-a.x, b.y-a.y)) : 0;
+  const isCrossFloor = a && b && a.floor !== b.floor
+                       && CROSS_FLOOR_TYPES.has(a.type)
+                       && CROSS_FLOOR_TYPES.has(b.type);
+  const w = (isCrossFloor || !a || !b) ? 0 : Math.round(Math.hypot(b.x-a.x, b.y-a.y));
   graph.edges[id] = {
     id, source: srcId, target: tgtId,
     type: inferEdgeType(a?.type, b?.type),
@@ -525,6 +558,51 @@ function showNodeProps(id) {
     document.getElementById('pn-meta').value = JSON.stringify(n.metadata || {}, null, 2);
   } catch { document.getElementById('pn-meta').value = '{}'; }
   propsEl.classList.add('open');
+
+  const cfSection = document.getElementById('pn-crossfloor');
+  const isVertical = (n.type === 'stair_landing' || n.type === 'elevator_door');
+  cfSection.style.display = isVertical ? '' : 'none';
+
+  if (isVertical) {
+    const existingLinks = Object.values(graph.edges).filter(e => {
+      if (e.source !== id && e.target !== id) return false;
+      const otherId = e.source === id ? e.target : e.source;
+      const other = graph.nodes[otherId];
+      return other && other.floor !== n.floor;
+    });
+
+    const cfExisting = document.getElementById('pn-cf-existing');
+    cfExisting.innerHTML = existingLinks.length === 0
+      ? 'No cross-floor links yet.'
+      : existingLinks.map(e => {
+          const otherId = e.source === id ? e.target : e.source;
+          const other = graph.nodes[otherId];
+          return `<div>Floor ${other.floor}: ${otherId}<span style="color:#45475a"> [w=0]</span></div>`;
+        }).join('');
+
+    const linkedIds = new Set(existingLinks.map(e => e.source === id ? e.target : e.source));
+    const available = Object.values(graph.nodes).filter(c =>
+      c.id !== id && c.type === n.type && c.floor !== n.floor && !linkedIds.has(c.id)
+    ).sort((a, b) => a.floor - b.floor || a.id.localeCompare(b.id));
+
+    const cfSel = document.getElementById('pn-cf-sel');
+    cfSel.innerHTML = '';
+    const cfBtn = document.getElementById('pn-cf-link');
+    if (available.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = ''; opt.textContent = '(no compatible nodes on other floors)';
+      cfSel.appendChild(opt);
+      cfBtn.disabled = true;
+    } else {
+      cfBtn.disabled = false;
+      available.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = `Floor ${c.floor}: ${c.id}${c.label ? ' ('+c.label+')' : ''}`;
+        cfSel.appendChild(opt);
+      });
+    }
+  }
 }
 
 function showEdgeProps(id) {
@@ -593,6 +671,7 @@ function snap() {
   histIdx = hist.length - 1;
   updateHistBtns(); mark();
   saveGraph();
+  rebuildFloorFilter();
 }
 
 function undo() {
@@ -651,21 +730,36 @@ function render() {
     const e = graph.edges[id];
     const a = graph.nodes[e.source], b = graph.nodes[e.target];
     if (!a || !b) continue;
+
+    const aVisible = floorFilter.size === 0 || floorFilter.has(a.floor);
+    const bVisible = floorFilter.size === 0 || floorFilter.has(b.floor);
+    if (!aVisible && !bVisible) continue;
+
     const sel = id === selEdge;
+    const isCF = a.floor !== b.floor
+                 && CROSS_FLOOR_TYPES.has(a.type)
+                 && CROSS_FLOOR_TYPES.has(b.type);
+
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
-    ctx.setLineDash([]);
-    ctx.strokeStyle = sel ? '#f9e2af' : (e.accessible === false ? '#f38ba8' : '#74c7ec');
-    ctx.lineWidth   = sel ? 3*invS : 2*invS;
+    if (isCF) {
+      ctx.setLineDash([10 * invS, 5 * invS]);
+      ctx.strokeStyle = sel ? '#f9e2af' : CROSS_FLOOR_COLOR;
+    } else {
+      ctx.setLineDash([]);
+      ctx.strokeStyle = sel ? '#f9e2af' : (e.accessible === false ? '#f38ba8' : '#74c7ec');
+    }
+    ctx.lineWidth = sel ? 3*invS : 2*invS;
     ctx.stroke();
+    ctx.setLineDash([]);
 
     // Weight label on edge midpoint (only when zoomed in enough)
     if (view.scale > 0.5) {
       const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
       const fs = Math.round(10*invS);
       ctx.font = `${fs}px system-ui`;
-      ctx.fillStyle = '#89dceb';
+      ctx.fillStyle = isCF ? CROSS_FLOOR_COLOR : '#89dceb';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(e.weight, mx, my - 8*invS);
@@ -689,6 +783,7 @@ function render() {
   // Nodes
   for (const id in graph.nodes) {
     const n   = graph.nodes[id];
+    if (floorFilter.size > 0 && !floorFilter.has(n.floor)) continue;
     const sel = selNodes.has(id) || id === conSrc;
     const r   = NODE_R * invS;
 
@@ -765,6 +860,21 @@ function buildLegend() {
                 + `<span class="leg-lbl">${NODE_LETTER[t]}: ${NODE_LABEL[t]}</span>`;
     leg.appendChild(d);
   });
+}
+
+function rebuildFloorFilter() {
+  const sel = document.getElementById('floor-filter-sel');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="all">All</option>';
+  [...new Set(Object.values(graph.nodes).map(n => n.floor))]
+    .sort((a, b) => a - b)
+    .forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f; opt.textContent = `Floor ${f}`;
+      sel.appendChild(opt);
+    });
+  sel.value = [...sel.options].some(o => o.value === prev) ? prev : 'all';
+  floorFilter = sel.value === 'all' ? new Set() : new Set([parseInt(sel.value)]);
 }
 
 // ── Zoom & pan ───────────────────────────────────────────────────────────────
@@ -1075,6 +1185,7 @@ function restoreSession() {
     };
     img.src = savedImg;
   }
+  rebuildFloorFilter();
 }
 
 // ── File I/O ─────────────────────────────────────────────────────────────────
@@ -1115,35 +1226,118 @@ function loadJSON(file) {
         const eid = e.id || nextEdgeId(e.source, e.target);
         graph.edges[eid] = { id: eid, ...e };
       });
+      if (data.meta) {
+        if (data.meta.buildingId) document.getElementById('def-building').value = data.meta.buildingId;
+        if (data.meta.floor != null) document.getElementById('def-floor').value = data.meta.floor;
+      }
       clearSel(); snap();
     } catch (err) { alert('JSON parse error: ' + err.message); }
   };
   reader.readAsText(file);
 }
 
+function mergeJSONFiles(fileList) {
+  const files = [...fileList];
+  if (!files.length) return;
+
+  // Read all files in parallel, then merge once all are loaded
+  let pending = files.length;
+  const datasets = [];
+
+  function tryFinish() {
+    if (--pending > 0) return;
+
+    // All files loaded — merge into current graph
+    let nodesAdded = 0, nodesSkipped = 0, edgesAdded = 0;
+
+    datasets.forEach(({ nodes, edges }) => {
+      nodes.forEach(n => {
+        if (!n.id) return;
+        if (graph.nodes[n.id]) { nodesSkipped++; return; }
+        graph.nodes[n.id] = n;
+        nodesAdded++;
+        // Keep typeCnt in sync
+        if (n.type) typeCnt[n.type] = (typeCnt[n.type] || 0) + 1;
+      });
+      edges.forEach(e => {
+        // Skip if this exact source+target pair already exists
+        const dup = Object.values(graph.edges).some(x =>
+          (x.source === e.source && x.target === e.target) ||
+          (x.source === e.target && x.target === e.source)
+        );
+        if (dup) return;
+        const eid = nextEdgeId(e.source, e.target);
+        graph.edges[eid] = { id: eid, ...e };
+        edgesAdded++;
+      });
+    });
+
+    clearSel(); snap();
+
+    const msg = `Merged ${files.length} file(s):\n` +
+                `  ${nodesAdded} node(s) added\n` +
+                `  ${nodesSkipped} node(s) skipped (ID already exists)\n` +
+                `  ${edgesAdded} edge(s) added`;
+    alert(msg);
+  }
+
+  files.forEach((file, i) => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        const nodes = Array.isArray(data.nodes) ? data.nodes : Object.values(data.nodes || {});
+        const edges = Array.isArray(data.edges) ? data.edges : Object.values(data.edges || {});
+        datasets[i] = { nodes, edges };
+      } catch (err) {
+        alert(`JSON parse error in "${file.name}": ${err.message}`);
+        datasets[i] = { nodes: [], edges: [] };
+      }
+      tryFinish();
+    };
+    reader.readAsText(file);
+  });
+}
+
 function exportJSON() {
-  const nodes = Object.values(graph.nodes).map(n => ({
-    id:         n.id,
-    type:       n.type,
-    buildingId: n.buildingId,
-    floor:      n.floor,
-    x:          Math.round(n.x),
-    y:          Math.round(n.y),
-    label:      n.label || '',
-    accessible: n.accessible !== false,
-    ...(n.metadata && Object.keys(n.metadata).length ? { metadata: n.metadata } : {})
-  }));
-  const edges = Object.values(graph.edges).map(e => ({
-    source:     e.source,
-    target:     e.target,
-    type:       e.type,
-    weight:     e.weight,
-    accessible: e.accessible !== false
-  }));
-  const json = JSON.stringify({ nodes, edges }, null, 2);
+  const activeFloor = floorFilter.size === 1 ? [...floorFilter][0] : null;
+  const visibleNodes = new Set(
+    Object.values(graph.nodes)
+      .filter(n => activeFloor === null || n.floor === activeFloor)
+      .map(n => n.id)
+  );
+
+  const nodes = Object.values(graph.nodes)
+    .filter(n => visibleNodes.has(n.id))
+    .map(n => ({
+      id:         n.id,
+      type:       n.type,
+      buildingId: n.buildingId,
+      floor:      n.floor,
+      x:          Math.round(n.x),
+      y:          Math.round(n.y),
+      label:      n.label || '',
+      accessible: n.accessible !== false,
+      ...(n.metadata && Object.keys(n.metadata).length ? { metadata: n.metadata } : {})
+    }));
+  const edges = Object.values(graph.edges)
+    .filter(e => visibleNodes.has(e.source) || visibleNodes.has(e.target))
+    .map(e => ({
+      source:     e.source,
+      target:     e.target,
+      type:       e.type,
+      weight:     e.weight,
+      accessible: e.accessible !== false
+    }));
+
+  const sessionMeta = { buildingId: document.getElementById('def-building').value.trim() || 'bldg-1' };
+  if (activeFloor !== null) sessionMeta.floor = activeFloor;
+
+  const filename = activeFloor !== null ? `floor-nav-F${activeFloor}.json` : 'floor-nav.json';
+  const json = JSON.stringify({ meta: sessionMeta, nodes, edges }, null, 2);
   const a    = Object.assign(document.createElement('a'), {
     href:     URL.createObjectURL(new Blob([json], { type: 'application/json' })),
-    download: 'floor-nav.json'
+    download: filename
   });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -1152,6 +1346,7 @@ function exportJSON() {
 // ── Toolbar wiring ────────────────────────────────────────────────────────────
 document.getElementById('btn-img').addEventListener('click',    () => document.getElementById('in-img').click());
 document.getElementById('btn-load').addEventListener('click',   () => document.getElementById('in-json').click());
+document.getElementById('btn-merge').addEventListener('click',  () => document.getElementById('in-merge').click());
 document.getElementById('btn-export').addEventListener('click', exportJSON);
 document.getElementById('btn-undo').addEventListener('click',   undo);
 document.getElementById('btn-redo').addEventListener('click',   redo);
@@ -1164,12 +1359,34 @@ document.getElementById('pn-type').addEventListener('change', e => {
   document.getElementById('pn-acc-row').style.display = e.target.value === 'stair_landing' ? 'none' : '';
 });
 
+document.getElementById('floor-filter-sel').addEventListener('change', e => {
+  floorFilter = e.target.value === 'all' ? new Set() : new Set([parseInt(e.target.value)]);
+  mark();
+});
+
+document.getElementById('pn-cf-link').addEventListener('click', () => {
+  const selNode = getSelNode();
+  if (!selNode) return;
+  const targetId = document.getElementById('pn-cf-sel').value;
+  if (!targetId) return;
+  const eid = addEdge(selNode, targetId);
+  if (eid === null) {
+    alert('A connection between these nodes already exists.');
+    return;
+  }
+  showNodeProps(selNode); // refresh panel to show new link
+});
+
 document.getElementById('in-img').addEventListener('change', e => {
   if (e.target.files[0]) loadImage(e.target.files[0]);
   e.target.value = '';
 });
 document.getElementById('in-json').addEventListener('change', e => {
   if (e.target.files[0]) loadJSON(e.target.files[0]);
+  e.target.value = '';
+});
+document.getElementById('in-merge').addEventListener('change', e => {
+  if (e.target.files.length) mergeJSONFiles(e.target.files);
   e.target.value = '';
 });
 
