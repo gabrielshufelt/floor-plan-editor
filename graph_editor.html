@@ -278,6 +278,35 @@ select#node-type-sel { width: 130px; }
       </div>
     </div>
 
+    <!-- Multi-select panel -->
+    <div id="pm" style="display:none">
+      <div class="pr">
+        <label>Scale selection</label>
+        <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-top:2px;">
+          <button id="btn-scale-shrink" title="Scale x0.9 ([ key)">x0.9</button>
+          <button id="btn-scale-grow"   title="Scale x1.1 (] key)">x1.1</button>
+          <input type="number" id="pm-factor" value="1.1" step="0.05" min="0.01" max="100"
+                 style="width:58px;" title="Custom scale factor">
+          <button id="btn-scale-apply" class="btn-primary" title="Apply custom factor">Scale</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:#6c7086;margin-top:2px;line-height:1.5;">
+        Scales around selection centroid.<br>
+        Edge weights scale for enclosed edges.
+      </div>
+      <div class="pr" style="margin-top:9px;">
+        <label>Rotate selection</label>
+        <div style="display:flex;gap:5px;align-items:center;margin-top:2px;">
+          <button id="btn-rot-ccw" title="Rotate 90 deg CCW (, key)">&#8634; CCW</button>
+          <button id="btn-rot-cw"  title="Rotate 90 deg CW (. key)">&#8635; CW</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:#6c7086;margin-top:2px;line-height:1.5;">
+        Rotates around selection centroid.<br>
+        Edge weights are unchanged.
+      </div>
+    </div>
+
     <div class="pr-actions">
       <button class="btn-primary" id="btn-apply">Apply</button>
       <button class="btn-danger"  id="btn-del-sel">Delete</button>
@@ -292,7 +321,7 @@ select#node-type-sel { width: 130px; }
   <span>Zoom: <span class="val" id="st-zoom">100%</span></span>
   <div class="sep" style="height:14px"></div>
   <div id="legend"></div>
-  <span id="hint">V · N · E · R · D · W &nbsp;|&nbsp; Drag to lasso · Shift+click · Del · Ctrl+Z/Y · Scroll · 0=fit</span>
+  <span id="hint">V · N · E · R · D · W &nbsp;|&nbsp; Drag to lasso · Shift+click · Del · Ctrl+Z/Y · Scroll · 0=fit · [/]=scale · ,/.=rotate</span>
 </div>
 
 <script>
@@ -382,6 +411,7 @@ const ctx       = canvas.getContext('2d');
 const propsEl   = document.getElementById('props');
 const pnEl      = document.getElementById('pn');
 const peEl      = document.getElementById('pe');
+const pmEl      = document.getElementById('pm');
 
 // ── Coordinate helpers ───────────────────────────────────────────────────────
 function s2w(sx, sy) { return { x: (sx - view.x) / view.scale, y: (sy - view.y) / view.scale }; }
@@ -534,17 +564,48 @@ function updateMultiSelPanel() {
   if (selNodes.size > 1) {
     document.getElementById('props-title').textContent = `${selNodes.size} nodes selected`;
     pnEl.style.display = 'none'; peEl.style.display = 'none';
+    pmEl.style.display = '';
     propsEl.classList.add('open');
   } else {
+    pmEl.style.display = 'none';
     propsEl.classList.remove('open');
   }
+}
+
+// ── Scale selection ───────────────────────────────────────────────────────────
+function scaleSelection(factor) {
+  if (selNodes.size < 2) return;
+  // Compute centroid of selected nodes
+  let cx = 0, cy = 0;
+  selNodes.forEach(id => {
+    const n = graph.nodes[id];
+    if (n) { cx += n.x; cy += n.y; }
+  });
+  cx /= selNodes.size;
+  cy /= selNodes.size;
+  // Scale node positions around centroid
+  selNodes.forEach(id => {
+    const n = graph.nodes[id];
+    if (n) {
+      n.x = Math.round(cx + (n.x - cx) * factor);
+      n.y = Math.round(cy + (n.y - cy) * factor);
+    }
+  });
+  // Scale weights for edges whose both endpoints are in the selection
+  for (const eid in graph.edges) {
+    const e = graph.edges[eid];
+    if (selNodes.has(e.source) && selNodes.has(e.target) && e.weight > 0) {
+      e.weight = Math.round(e.weight * factor * 10) / 10;
+    }
+  }
+  snap();
 }
 
 // ── Properties panel ─────────────────────────────────────────────────────────
 function showNodeProps(id) {
   const n = graph.nodes[id]; if (!n) return;
   document.getElementById('props-title').textContent = 'Node Properties';
-  pnEl.style.display = ''; peEl.style.display = 'none';
+  pnEl.style.display = ''; peEl.style.display = 'none'; pmEl.style.display = 'none';
   document.getElementById('pn-id').value    = n.id;
   document.getElementById('pn-type').value  = n.type;
   document.getElementById('pn-label').value = n.label || '';
@@ -608,7 +669,7 @@ function showNodeProps(id) {
 function showEdgeProps(id) {
   const e = graph.edges[id]; if (!e) return;
   document.getElementById('props-title').textContent = 'Edge Properties';
-  pnEl.style.display = 'none'; peEl.style.display = '';
+  pnEl.style.display = 'none'; peEl.style.display = ''; pmEl.style.display = 'none';
   document.getElementById('pe-ends').textContent   = `${e.source}  →  ${e.target}`;
   document.getElementById('pe-type').value         = e.type || 'hallway';
   document.getElementById('pe-weight').value       = e.weight ?? 0;
@@ -659,6 +720,29 @@ function applyProps() {
     e.accessible = document.getElementById('pe-acc').checked;
     snap(); mark();
   }
+}
+
+// ── Rotate selection ─────────────────────────────────────────────────────────
+function rotateSelection(deg) {
+  if (selNodes.size < 2) return;
+  let cx = 0, cy = 0;
+  selNodes.forEach(id => {
+    const n = graph.nodes[id];
+    if (n) { cx += n.x; cy += n.y; }
+  });
+  cx /= selNodes.size;
+  cy /= selNodes.size;
+  const rad = deg * Math.PI / 180;
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  selNodes.forEach(id => {
+    const n = graph.nodes[id];
+    if (n) {
+      const dx = n.x - cx, dy = n.y - cy;
+      n.x = Math.round(cx + dx * cos - dy * sin);
+      n.y = Math.round(cy + dx * sin + dy * cos);
+    }
+  });
+  snap();
 }
 
 // ── History ──────────────────────────────────────────────────────────────────
@@ -1139,6 +1223,10 @@ document.addEventListener('keydown', e => {
       conSrc = null; rubber.on = false; clearSel();
       if (tool !== 'select') setTool('select');
       break;
+    case '[': scaleSelection(0.9); break;
+    case ']': scaleSelection(1.1); break;
+    case ',': rotateSelection(-90); break;  // CCW
+    case '.': rotateSelection(90);  break;  // CW
     case '=': case '+': zoomAt(canvas.width/2, canvas.height/2, ZOOM_F);   break;
     case '-':           zoomAt(canvas.width/2, canvas.height/2, 1/ZOOM_F); break;
     case '0': fitToView(); break;
@@ -1354,7 +1442,15 @@ document.getElementById('tool-select').addEventListener('click',() => setTool('s
 document.getElementById('tool-node').addEventListener('click',  () => setTool('node'));
 document.getElementById('tool-edge').addEventListener('click',  () => setTool('edge'));
 document.getElementById('btn-apply').addEventListener('click',  applyProps);
-document.getElementById('btn-del-sel').addEventListener('click',delSelected);
+document.getElementById('btn-del-sel').addEventListener('click', delSelected);
+document.getElementById('btn-rot-ccw').addEventListener('click', () => rotateSelection(-90));
+document.getElementById('btn-rot-cw').addEventListener('click',  () => rotateSelection(90));
+document.getElementById('btn-scale-shrink').addEventListener('click', () => scaleSelection(0.9));
+document.getElementById('btn-scale-grow').addEventListener('click',   () => scaleSelection(1.1));
+document.getElementById('btn-scale-apply').addEventListener('click',  () => {
+  const f = parseFloat(document.getElementById('pm-factor').value);
+  if (f > 0 && isFinite(f)) scaleSelection(f);
+});
 document.getElementById('pn-type').addEventListener('change', e => {
   document.getElementById('pn-acc-row').style.display = e.target.value === 'stair_landing' ? 'none' : '';
 });
