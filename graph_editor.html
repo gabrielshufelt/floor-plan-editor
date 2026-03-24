@@ -178,7 +178,10 @@ select#node-type-sel { width: 130px; }
     <option value="hallway_waypoint">Hallway Waypoint</option>
     <option value="stair_landing">Stair Landing</option>
     <option value="elevator_door">Elevator Door</option>
-    <option value="building_entry_exit">Entry / Exit</option>
+    <option value="building_entry">Building Entry</option>
+    <option value="building_exit">Building Exit</option>
+    <option value="washroom">Washroom</option>
+    <option value="water_fountain">Water Fountain</option>
   </select>
   <div class="sep"></div>
 
@@ -224,7 +227,10 @@ select#node-type-sel { width: 130px; }
           <option value="hallway_waypoint">Hallway Waypoint</option>
           <option value="stair_landing">Stair Landing</option>
           <option value="elevator_door">Elevator Door</option>
-          <option value="building_entry_exit">Entry / Exit</option>
+          <option value="building_entry">Building Entry</option>
+          <option value="building_exit">Building Exit</option>
+          <option value="washroom">Washroom</option>
+          <option value="water_fountain">Water Fountain</option>
         </select>
       </div>
       <div class="pr"><label>Label</label><input type="text" id="pn-label" placeholder="e.g. Room 101"></div>
@@ -343,32 +349,42 @@ const CROSS_FLOOR_COLOR = '#ff79c6'; // magenta (Catppuccin pink)
 
 const NODE_TYPES = [
   'room','doorway','hallway_waypoint',
-  'stair_landing','elevator_door','building_entry_exit'
+  'stair_landing','elevator_door','building_entry','building_exit',
+  'washroom','water_fountain'
 ];
 const NODE_LABEL = {
   room:'Room', doorway:'Doorway', hallway_waypoint:'Waypoint', stair_landing:'Stair',
-  elevator_door:'Elevator', building_entry_exit:'Entry/Exit'
+  elevator_door:'Elevator', building_entry:'Entry', building_exit:'Exit',
+  washroom:'Washroom', water_fountain:'Fountain'
 };
 const NODE_LETTER = {
   room:'R', doorway:'D', hallway_waypoint:'W',
-  stair_landing:'S', elevator_door:'E', building_entry_exit:'B'
+  stair_landing:'S', elevator_door:'E', building_entry:'I', building_exit:'O',
+  washroom:'WC', water_fountain:'WF'
 };
 const NODE_COLOR = {
   room:'#4a90e2', doorway:'#52c41a', hallway_waypoint:'#d4b106', stair_landing:'#e05c5c',
-  elevator_door:'#9b59b6', building_entry_exit:'#00bcd4'
+  elevator_door:'#9b59b6', building_entry:'#00bcd4', building_exit:'#0097a7',
+  washroom:'#26a69a', water_fountain:'#42a5f5'
 };
 
 // Infer edge type from sorted pair of node types
 const EDGE_TYPE_MAP = {
   'doorway+room':                      'room_to_door',
-  'building_entry_exit+doorway':       'room_to_door',
+  'building_entry+doorway':            'room_to_door',
+  'building_exit+doorway':             'room_to_door',
   'doorway+hallway_waypoint':          'door_to_hallway',
   'doorway+stair_landing':             'door_to_hallway',
   'doorway+elevator_door':             'door_to_hallway',
-  'building_entry_exit+hallway_waypoint':  'hallway',
-  'building_entry_exit+room':          'room_to_door',
+  'building_entry+hallway_waypoint':   'hallway',
+  'building_exit+hallway_waypoint':    'hallway',
+  'building_entry+room':               'room_to_door',
+  'building_exit+room':                'room_to_door',
   'hallway_waypoint+hallway_waypoint': 'hallway',
   'hallway_waypoint+room':             'door_to_hallway',
+  'hallway_waypoint+washroom':         'door_to_hallway',
+  'hallway_waypoint+water_fountain':   'hallway',
+  'doorway+washroom':                  'room_to_door',
   'stair_landing+stair_landing':       'stair',
   'elevator_door+elevator_door':       'elevator',
 };
