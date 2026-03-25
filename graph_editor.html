@@ -182,6 +182,7 @@ select#node-type-sel { width: 130px; }
     <option value="building_exit">Building Exit</option>
     <option value="washroom">Washroom</option>
     <option value="water_fountain">Water Fountain</option>
+    <option value="vending_machine">Vending Machine</option>
   </select>
   <div class="sep"></div>
 
@@ -231,6 +232,7 @@ select#node-type-sel { width: 130px; }
           <option value="building_exit">Building Exit</option>
           <option value="washroom">Washroom</option>
           <option value="water_fountain">Water Fountain</option>
+          <option value="vending_machine">Vending Machine</option>
         </select>
       </div>
       <div class="pr"><label>Label</label><input type="text" id="pn-label" placeholder="e.g. Room 101"></div>
@@ -350,22 +352,22 @@ const CROSS_FLOOR_COLOR = '#ff79c6'; // magenta (Catppuccin pink)
 const NODE_TYPES = [
   'room','doorway','hallway_waypoint',
   'stair_landing','elevator_door','building_entry','building_exit',
-  'washroom','water_fountain'
+  'washroom','water_fountain','vending_machine'
 ];
 const NODE_LABEL = {
   room:'Room', doorway:'Doorway', hallway_waypoint:'Waypoint', stair_landing:'Stair',
   elevator_door:'Elevator', building_entry:'Entry', building_exit:'Exit',
-  washroom:'Washroom', water_fountain:'Fountain'
+  washroom:'Washroom', water_fountain:'Fountain', vending_machine:'Vending'
 };
 const NODE_LETTER = {
   room:'R', doorway:'D', hallway_waypoint:'W',
   stair_landing:'S', elevator_door:'E', building_entry:'I', building_exit:'O',
-  washroom:'WC', water_fountain:'WF'
+  washroom:'WC', water_fountain:'WF', vending_machine:'VM'
 };
 const NODE_COLOR = {
   room:'#4a90e2', doorway:'#52c41a', hallway_waypoint:'#d4b106', stair_landing:'#e05c5c',
   elevator_door:'#9b59b6', building_entry:'#00bcd4', building_exit:'#0097a7',
-  washroom:'#26a69a', water_fountain:'#42a5f5'
+  washroom:'#26a69a', water_fountain:'#42a5f5', vending_machine:'#ff7043'
 };
 
 // Infer edge type from sorted pair of node types
@@ -384,6 +386,7 @@ const EDGE_TYPE_MAP = {
   'hallway_waypoint+room':             'door_to_hallway',
   'hallway_waypoint+washroom':         'door_to_hallway',
   'hallway_waypoint+water_fountain':   'hallway',
+  'hallway_waypoint+vending_machine':  'hallway',
   'doorway+washroom':                  'room_to_door',
   'stair_landing+stair_landing':       'stair',
   'elevator_door+elevator_door':       'elevator',
